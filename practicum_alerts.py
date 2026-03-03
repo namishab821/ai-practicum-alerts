@@ -7,8 +7,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import imaplib
 import email
-import time
-import urllib.parse
 
 # -------------------------
 # CONFIGURATION
@@ -30,38 +28,16 @@ KEYWORDS = [
 
 TELEHEALTH_KEYWORDS = ["telehealth", "remote", "virtual", "online", "video"]
 
-# ------------------------------------------------
-# Local on‑site program links (always show)
-# ------------------------------------------------
-LOCAL_PROGRAMS = [
-    {"title": "Discovery Counseling Center – Training Opportunities",
-     "link": "https://www.discoveryctr.net/training-opportunities/",
-     "telehealth": False},
-
-    {"title": "Kaiser Permanente Pre-Master’s Mental Health Internship",
-     "link": "https://mentalhealthtraining-ncal.kaiserpermanente.org/pre-masters-mental-health-internship/",
-     "telehealth": False},
-
-    {"title": "Contra Costa Behavioral Health – Internship Program",
-     "link": "https://www.contracosta.ca.gov/332/Behavioral-Health-Services",
-     "telehealth": False},
-
-    {"title": "Solano County Behavioral Health – Internship Program",
-     "link": "https://www.solanocounty.com/depts/ph/behavioral_health/internships.asp",
-     "telehealth": False},
-
-    {"title": "Alameda County Behavioral Health – Internship Program",
-     "link": "https://www.acgov.org/behavioral-health-services",
-     "telehealth": False},
-
-    {"title": "Health Solutions West – Internships/Practicums",
-     "link": "https://healthsolutionswest.org/careers/internships-practicums/",
-     "telehealth": False},
-
-    {"title": "Earth Circles Counseling Center – Internships",
-     "link": "https://www.earthcirclescenter.com/internships/",
-     "telehealth": False}
-]
+# Verified local program pages
+PROGRAM_LINKS = {
+    "Discovery Counseling Center": "https://www.discoveryctr.net/training-opportunities/",
+    "Kaiser Permanente Pre-Master’s Mental Health Internship": "https://mentalhealthtraining-ncal.kaiserpermanente.org/pre-masters-mental-health-internship/",
+    "Contra Costa Behavioral Health": "https://www.contracosta.ca.gov/332/Behavioral-Health-Services",
+    "Solano County Behavioral Health": "https://www.solanocounty.com/depts/ph/behavioral_health/internships.asp",
+    "Alameda County Behavioral Health": "https://www.acgov.org/behavioral-health-services",
+    "Health Solutions West": "https://healthsolutionswest.org/careers/internships-practicums/",
+    "Earth Circles Counseling Center": "https://www.earthcirclescenter.com/internships/"
+}
 
 # RSS feeds
 RSS_FEEDS = [
@@ -74,20 +50,34 @@ LINKEDIN_SENDER = "jobs-noreply@linkedin.com"
 # -------------------------
 # FUNCTIONS
 # -------------------------
-
 def fetch_rss():
     listings = []
     for feed_url in RSS_FEEDS:
         feed = feedparser.parse(feed_url)
         for entry in feed.entries:
             title = entry.title
+            published = entry.get("published", "")
             if any(k.lower() in title.lower() for k in KEYWORDS):
-                telehealth_tag = any(tk in title.lower() for tk in TELEHEALTH_KEYWORDS)
-                listings.append({
-                    "title": title.strip(),
-                    "link": entry.link.strip(),
-                    "telehealth": telehealth_tag
-                })
+                listings.append({"title": title.strip(), "link": entry.link.strip(), "telehealth": False})
+    return listings
+
+def fetch_program_links():
+    listings = []
+    for org, url in PROGRAM_LINKS.items():
+        try:
+            r = requests.get(url, timeout=10)
+            soup = BeautifulSoup(r.text, "html.parser")
+            for a in soup.find_all("a", href=True):
+                text = a.get_text().strip()
+                if any(k.lower() in text.lower() for k in ["apply", "open", "internship", "practicum"]):
+                    telehealth_tag = any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS)
+                    listings.append({
+                        "title": f"{org}: {text}",
+                        "link": a["href"],
+                        "telehealth": telehealth_tag
+                    })
+        except Exception as e:
+            print(f"ERROR fetching {org}: {e}")
     return listings
 
 def fetch_linkedin_alerts():
@@ -96,8 +86,10 @@ def fetch_linkedin_alerts():
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(YOUR_EMAIL, YOUR_PASSWORD)
         mail.select("inbox")
+
         result, data = mail.search(None, f'(UNSEEN FROM "{LINKEDIN_SENDER}")')
         mail_ids = data[0].split()
+
         for mail_id in mail_ids:
             result, msg_data = mail.fetch(mail_id, "(RFC822)")
             raw_email = msg_data[0][1]
@@ -121,75 +113,44 @@ def fetch_linkedin_alerts():
         print(f"ERROR fetching LinkedIn alerts: {e}")
     return listings
 
-def fetch_google_search():
-    """
-    Free Google search scrape for telehealth/remote CA practicum/internship listings.
-    This uses basic HTML parsing and may pick up titles & links from Google results.
-    """
+def fetch_telehealth_google():
     listings = []
-    query = "telehealth OR remote OR virtual OR online California internship OR practicum"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    encoded = urllib.parse.quote(query + " California internship practicum")
-    url = f"https://www.google.com/search?q={encoded}&num=10"
-
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        # Google result blocks usually in div with class "yuRUbf"
-        for result in soup.find_all("div", class_="yuRUbf"):
-            a = result.find("a", href=True)
-            title = result.get_text().strip()
-            href = a["href"] if a else ""
-            if href and any(k in title.lower() for k in KEYWORDS):
-                listings.append({
-                    "title": title,
-                    "link": href,
-                    "telehealth": True
-                })
-
-        # avoid Google blocking by small pause
-        time.sleep(2)
-
+        QUERY = "telehealth counseling practicum OR telehealth mental health internship California"
+        URL = f"https://www.google.com/search?q={QUERY}&num=10"
+        HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        r = requests.get(URL, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(r.text, "html.parser")
+        for g in soup.find_all('a', href=True):
+            href = g['href']
+            text = g.get_text().strip()
+            if text and any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS):
+                listings.append({"title": text, "link": href, "telehealth": True})
     except Exception as e:
-        print(f"ERROR fetching Google search: {e}")
+        print(f"ERROR fetching Telehealth Google results: {e}")
     return listings
 
 def build_email(listings):
-    # combine local + dynamic
-    all_listings = []
+    tele = [l for l in listings if l.get("telehealth")]
+    onsite = [l for l in listings if not l.get("telehealth")]
 
-    # always include local
-    for p in LOCAL_PROGRAMS:
-        all_listings.append(p)
-
-    # dynamic
-    all_listings += listings
-
-    # split telehealth vs on‑site
-    tele_list = [l for l in all_listings if l["telehealth"]]
-    onsite_list = [l for l in all_listings if not l["telehealth"]]
-
-    # build HTML
     body = "<html><body>"
 
-    body += "<h2>On‑Site / Local Practicum & Internship Listings</h2>"
-    if onsite_list:
-        body += "<ul>"
-        for item in onsite_list:
-            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}" target="_blank">{item["link"]}</a></li>'
-        body += "</ul>"
+    body += "<h2>On-Site / Local Listings</h2><ul>"
+    if onsite:
+        for item in onsite:
+            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}">{item["link"]}</a></li>'
     else:
-        body += "<p>No on‑site listings found today 🎉</p>"
+        body += "<li>No on-site listings today 🎉</li>"
+    body += "</ul>"
 
-    body += "<h2>Telehealth / Remote Listings</h2>"
-    if tele_list:
-        body += "<ul>"
-        for item in tele_list:
-            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}" target="_blank">{item["link"]}</a></li>'
-        body += "</ul>"
+    body += "<h2>Telehealth / Remote Listings</h2><ul>"
+    if tele:
+        for item in tele:
+            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}">{item["link"]}</a></li>'
     else:
-        body += "<p>No telehealth listings found today 🎉</p>"
+        body += "<li>No Telehealth listings today 🎉</li>"
+    body += "</ul>"
 
     body += "</body></html>"
     return body
@@ -198,9 +159,8 @@ def send_email(html_body):
     msg = MIMEMultipart("alternative")
     msg["From"] = YOUR_EMAIL
     msg["To"] = TO_EMAIL
-    msg["Subject"] = "Daily Practicum + Internship Listings (CA)"
+    msg["Subject"] = "Daily Open Practicum + Internship Listings (CA)"
     msg.attach(MIMEText(html_body, "html"))
-
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(YOUR_EMAIL, YOUR_PASSWORD)
         server.sendmail(YOUR_EMAIL, TO_EMAIL, msg.as_string())
@@ -210,12 +170,13 @@ def send_email(html_body):
 # -------------------------
 if __name__ == "__main__":
     rss_listings = fetch_rss()
+    program_listings = fetch_program_links()
     linkedin_listings = fetch_linkedin_alerts()
-    google_listings = fetch_google_search()
+    telehealth_listings = fetch_telehealth_google()
 
-    all_dynamic = rss_listings + linkedin_listings + google_listings
+    all_listings = rss_listings + program_listings + linkedin_listings + telehealth_listings
 
-    email_body = build_email(all_dynamic)
+    email_body = build_email(all_listings)
     send_email(email_body)
 
-    print(f"Email sent with {len(all_dynamic)} dynamic listings")
+    print(f"Email sent with {len(all_listings)} listings")
