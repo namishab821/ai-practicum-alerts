@@ -1,6 +1,4 @@
 import feedparser
-import requests
-from bs4 import BeautifulSoup
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -13,32 +11,20 @@ TO_EMAIL = YOUR_EMAIL
 ZIP = "94582"
 RADIUS = "12"
 
-KEYWORDS = [
-    "counseling practicum",
-    "counseling internship",
-    "mental health intern",
-    "school counseling",
-    "clinical mental health counseling intern"
-]
+RSS_FEED = f"https://www.indeed.com/rss?q=counseling+internship+OR+mental+health+intern&l={ZIP}&radius={RADIUS}"
 
-RSS_FEEDS = [
-    f"https://www.indeed.com/rss?q=counseling+practicum+OR+counseling+internship&l={ZIP}&radius={RADIUS}",
-    f"https://www.indeed.com/rss?q=clinical+mental+health+intern+OR+mental+health+intern&l={ZIP}&radius={RADIUS}"
-]
 
 def fetch_rss():
+    feed = feedparser.parse(RSS_FEED)
     items = []
-    for feed_url in RSS_FEEDS:
-        feed = feedparser.parse(feed_url)
-        for entry in feed.entries:
-            title = entry.title
-            summary = entry.summary
-            if any(keyword.lower() in title.lower() or keyword.lower() in summary.lower() for keyword in KEYWORDS):
-                items.append({
-                    "title": title,
-                    "link": entry.link,
-                    "published": entry.get("published", "")
-                })
+
+    for entry in feed.entries:
+        items.append({
+            "title": entry.title,
+            "link": entry.link,
+            "published": entry.get("published", "")
+        })
+
     return items
 
 
@@ -47,7 +33,7 @@ def build_email(listings):
         return """
         <html>
             <body>
-                <h2>No new practicum listings today.</h2>
+                <h2>No listings found at all.</h2>
             </body>
         </html>
         """
@@ -55,7 +41,7 @@ def build_email(listings):
     body = """
     <html>
         <body>
-            <h2>New Practicum Listings</h2>
+            <h2>ALL Practicum Listings Found</h2>
             <ul>
     """
 
@@ -81,7 +67,7 @@ def send_email(html_body):
     msg = MIMEMultipart("alternative")
     msg["From"] = YOUR_EMAIL
     msg["To"] = TO_EMAIL
-    msg["Subject"] = "Daily Practicum Listings"
+    msg["Subject"] = "DEBUG: Practicum Listings"
 
     part = MIMEText(html_body, "html")
     msg.attach(part)
@@ -94,6 +80,6 @@ def send_email(html_body):
 
 if __name__ == "__main__":
     listings = fetch_rss()
+    print(f"Total listings found: {len(listings)}")
     email_body = build_email(listings)
     send_email(email_body)
-    print(f"Email sent with {len(listings)} listings.")
