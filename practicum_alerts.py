@@ -8,7 +8,7 @@ import os
 import json
 
 # -------------------------
-# Configuration
+# Config
 # -------------------------
 YOUR_EMAIL = os.environ.get("EMAIL_ADDRESS")
 YOUR_PASSWORD = os.environ.get("EMAIL_PASSWORD")
@@ -71,17 +71,9 @@ def scrape_program_pages():
             r = requests.get(url, headers=headers, timeout=12)
             soup = BeautifulSoup(r.text, "html.parser")
 
-            # Look for an "Open" or "Deadline" text nearby
-            deadline_text = ""
-            text_blocks = soup.find_all(["p", "li", "div"])
-            for block in text_blocks:
-                txt = block.get_text().lower()
-                if "deadline" in txt or "open" in txt:
-                    deadline_text = block.get_text().strip()
-                    break
-
-            listings.append({"title": program, "link": url, "date": deadline_text})
-            print(f"DEBUG: Added {program} ({'with deadline' if deadline_text else 'no deadline'})")
+            # For messy pages, only include the program title + link
+            listings.append({"title": program, "link": url, "date": ""})
+            print(f"DEBUG: Added {program} ({url})")
         except Exception as e:
             print(f"ERROR scraping {url}: {e}")
     return listings
