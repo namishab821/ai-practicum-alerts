@@ -1,14 +1,14 @@
-import requests
-from bs4 import BeautifulSoup
 import feedparser
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import os
-import json
+import imaplib
+import email
+from bs4 import BeautifulSoup
 
 # -------------------------
-# Config
+# Configuration
 # -------------------------
 YOUR_EMAIL = os.environ.get("EMAIL_ADDRESS")
 YOUR_PASSWORD = os.environ.get("EMAIL_PASSWORD")
@@ -17,6 +17,7 @@ TO_EMAIL = YOUR_EMAIL
 ZIP = "94582"
 RADIUS = "12"  # ~20 min drive
 
+# Keywords to filter all sources
 KEYWORDS = [
     "counseling practicum",
     "counseling internship",
@@ -27,12 +28,8 @@ KEYWORDS = [
     "trainee"
 ]
 
-RSS_FEEDS = [
-    f"https://www.indeed.com/rss?q=counseling+practicum+OR+counseling+internship&l={ZIP}&radius={RADIUS}",
-    f"https://www.indeed.com/rss?q=clinical+mental+health+intern+OR+mental+health+intern&l={ZIP}&radius={RADIUS}"
-]
-
-SCRAPE_PAGES = {
+# Verified program links
+PROGRAM_LINKS = {
     "Discovery Counseling Center – Training Opportunities": "https://www.discoveryctr.net/training-opportunities/",
     "Kaiser Permanente Pre-Master’s Mental Health Internship": "https://mentalhealthtraining-ncal.kaiserpermanente.org/pre-masters-mental-health-internship/",
     "Contra Costa Behavioral Health – Internship Program": "https://www.contracosta.ca.gov/332/Behavioral-Health-Services",
@@ -42,7 +39,12 @@ SCRAPE_PAGES = {
     "Earth Circles Counseling Center – Internships": "https://www.earthcirclescenter.com/internships/"
 }
 
-SENT_FILE = "sent_listings.json"
+RSS_FEEDS = [
+    f"https://www.indeed.com/rss?q=counseling+practicum+OR+counseling+internship&l={ZIP}&radius={RADIUS}",
+    f"https://www.indeed.com/rss?q=clinical+mental+health+intern+OR+mental+health+intern&l={ZIP}&radius={RADIUS}"
+]
+
+LINKEDIN_SENDER = "jobs-noreply@linkedin.com"
 
 # -------------------------
 # RSS Functions
@@ -53,60 +55,71 @@ def fetch_rss():
         feed = feedparser.parse(feed_url)
         for entry in feed.entries:
             title = entry.title
-            summary = entry.summary
             published = entry.get("published", "")
-            if any(k.lower() in title.lower() or k.lower() in summary.lower() for k in KEYWORDS):
+            if any(k.lower() in title.lower() for k in KEYWORDS):
                 listings.append({"title": title.strip(), "link": entry.link.strip(), "date": published})
-    print(f"DEBUG: RSS found {len(listings)} listings")
     return listings
 
 # -------------------------
-# HTML Scraping Functions
+# Program Links
 # -------------------------
-def scrape_program_pages():
+def fetch_program_links():
+    return [{"title": title, "link": url, "date": ""} for title, url in PROGRAM_LINKS.items()]
+
+# -------------------------
+# LinkedIn Email Alerts
+# -------------------------
+def fetch_linkedin_alerts():
     listings = []
-    for program, url in SCRAPE_PAGES.items():
-        try:
-            headers = {"User-Agent": "Mozilla/5.0"}
-            r = requests.get(url, headers=headers, timeout=12)
-            soup = BeautifulSoup(r.text, "html.parser")
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(YOUR_EMAIL, YOUR_PASSWORD)
+        mail.select("inbox")
 
-            # For messy pages, only include the program title + link
-            listings.append({"title": program, "link": url, "date": ""})
-            print(f"DEBUG: Added {program} ({url})")
-        except Exception as e:
-            print(f"ERROR scraping {url}: {e}")
+        result, data = mail.search(None, f'(UNSEEN FROM "{LINKEDIN_SENDER}")')
+        mail_ids = data[0].split()
+
+        for mail_id in mail_ids:
+            result, msg_data = mail.fetch(mail_id, "(RFC822)")
+            raw_email = msg_data[0][1]
+            msg = email.message_from_bytes(raw_email)
+
+            # Extract HTML content
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/html":
+                        html = part.get_payload(decode=True).decode()
+                        soup = BeautifulSoup(html, "html.parser")
+                        for a in soup.find_all("a", href=True):
+                            href = a["href"]
+                            text = a.get_text().strip()
+                            if text and any(k.lower() in text.lower() for k in KEYWORDS):
+                                listings.append({"title": text, "link": href, "date": ""})
+            else:
+                text = msg.get_payload(decode=True).decode()
+                for line in text.splitlines():
+                    if any(k.lower() in line.lower() for k in KEYWORDS):
+                        listings.append({"title": line.strip(), "link": "", "date": ""})
+
+        mail.logout()
+    except Exception as e:
+        print(f"ERROR fetching LinkedIn alerts: {e}")
+
+    print(f"DEBUG: Found {len(listings)} LinkedIn listings matching keywords")
     return listings
-
-# -------------------------
-# Deduplication
-# -------------------------
-def load_sent():
-    if not os.path.exists(SENT_FILE):
-        return []
-    with open(SENT_FILE, "r") as f:
-        return json.load(f)
-
-def save_sent(sent_links):
-    with open(SENT_FILE, "w") as f:
-        json.dump(sent_links, f)
-
-def filter_new(listings, sent_links):
-    new = [item for item in listings if item["link"] not in sent_links]
-    print(f"DEBUG: {len(new)} new listings after deduplication")
-    return new
 
 # -------------------------
 # Email Builder
 # -------------------------
 def build_email(listings):
     if not listings:
-        return "<html><body><h2>No new practicum listings today 🎉</h2></body></html>"
+        return "<html><body><h2>No practicum listings today 🎉</h2></body></html>"
 
-    body = "<html><body><h2>New Practicum & Internship Listings</h2><ul>"
+    body = "<html><body><h2>Practicum & Internship Listings</h2><ul>"
     for item in listings:
         date_info = f"<br><small>{item['date']}</small>" if item['date'] else ""
-        body += f'<li><strong>{item["title"]}</strong>{date_info}<br><a href="{item["link"]}" target="_blank">{item["link"]}</a></li>'
+        link_html = f'<br><a href="{item["link"]}" target="_blank">{item["link"]}</a>' if item["link"] else ""
+        body += f'<li><strong>{item["title"]}</strong>{date_info}{link_html}</li>'
     body += "</ul></body></html>"
     return body
 
@@ -128,16 +141,12 @@ def send_email(html_body):
 # -------------------------
 if __name__ == "__main__":
     rss_listings = fetch_rss()
-    html_listings = scrape_program_pages()
-    all_listings = rss_listings + html_listings
+    program_listings = fetch_program_links()
+    linkedin_listings = fetch_linkedin_alerts()
 
-    sent_links = load_sent()
-    new_listings = filter_new(all_listings, sent_links)
+    all_listings = rss_listings + program_listings + linkedin_listings
 
-    email_body = build_email(new_listings)
+    email_body = build_email(all_listings)
     send_email(email_body)
 
-    updated_links = sent_links + [item["link"] for item in new_listings]
-    save_sent(updated_links)
-
-    print(f"Email sent with {len(new_listings)} new listings")
+    print(f"Email sent with {len(all_listings)} listings")
