@@ -1,18 +1,33 @@
-# AI Practicum Alerts
+# Daily Practicum & Internship Alerts (CA)
 
-Automated Python script that fetches daily counseling practicum listings from RSS feeds and local practicum pages, filters by keywords, and emails new listings automatically.
+This Python script collects **open practicum and internship listings in California**, combining:  
 
-## How it Works
+1. **Local / on-site programs** (manually curated clinics & county programs)  
+2. **Indeed RSS feeds** for counseling and mental health internships  
+3. **LinkedIn alert emails**  
+4. **Telehealth / remote positions** scraped from free Google search results  
 
-1. Fetches listings from Indeed RSS feeds and local agency webpages.
-2. Scrapes public job boards and pages for matching keywords.
-3. Filters duplicates and builds an HTML email.
-4. Sends email daily via GitHub Actions.
+The email output is split into **On-Site / Local** and **Telehealth / Remote** sections for easy scanning.
 
-## Setup
+---
 
-1. Upload the repo files to GitHub.
-2. Add email credentials as GitHub Secrets: `EMAIL_ADDRESS` & `EMAIL_PASSWORD`.
-3. GitHub Actions will run daily and email new practicum listings.
+## Features
 
-# Trigger GitHub Actions recognition
+- ✅ Always shows local programs  
+- ✅ Fetches relevant listings from Indeed RSS feeds  
+- ✅ Parses LinkedIn alert emails  
+- ✅ Pulls telehealth listings from Google search (free, no paid API)  
+- ✅ Sends a **daily HTML email** with clickable links  
+- ✅ Sections: **On-site** vs **Telehealth / Remote**  
+
+---
+
+## Prerequisites
+
+- Python 3.x  
+- Gmail account for sending/receiving emails  
+- Environment variables:  
+
+```bash
+export EMAIL_ADDRESS="youremail@gmail.com"
+export EMAIL_PASSWORD="your_app_password"
