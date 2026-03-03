@@ -73,7 +73,6 @@ def fetch_program_links():
         try:
             r = requests.get(url, timeout=10)
             soup = BeautifulSoup(r.text, "html.parser")
-            # Include any links that match keywords
             for a in soup.find_all("a", href=True):
                 text = a.get_text().strip()
                 if any(k.lower() in text.lower() for k in KEYWORDS):
@@ -110,6 +109,32 @@ def fetch_linkedin_alerts():
                                 listings.append({"title": text, "link": href, "telehealth": telehealth_tag, "source": "LinkedIn"})
     except Exception as e:
         print(f"ERROR fetching LinkedIn alerts: {e}")
+    return listings
+
+def fetch_web_search():
+    listings = []
+    try:
+        query = "California counseling practicum OR mental health internship telehealth OR remote site:.org OR site:.edu"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        url = f"https://www.bing.com/search?q={query.replace(' ', '+')}"
+        r = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Bing search results are in <li class="b_algo">
+        for li in soup.find_all("li", class_="b_algo"):
+            a_tag = li.find("a")
+            if a_tag and a_tag.get("href"):
+                href = a_tag["href"]
+                title = a_tag.get_text().strip()
+                if any(k.lower() in title.lower() for k in ["internship", "practicum", "training"]):
+                    listings.append({
+                        "title": title,
+                        "link": href,
+                        "telehealth": True,
+                        "source": "Bing Search"
+                    })
+    except Exception as e:
+        print(f"ERROR fetching Bing search: {e}")
     return listings
 
 def build_email(listings):
@@ -154,8 +179,9 @@ if __name__ == "__main__":
     rss_listings = fetch_rss()
     program_listings = fetch_program_links()
     linkedin_listings = fetch_linkedin_alerts()
+    web_search_listings = fetch_web_search()
 
-    all_listings = rss_listings + program_listings + linkedin_listings
+    all_listings = rss_listings + program_listings + linkedin_listings + web_search_listings
 
     email_body = build_email(all_listings)
     send_email(email_body)
