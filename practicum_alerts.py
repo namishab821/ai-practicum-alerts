@@ -103,6 +103,24 @@ def fetch_linkedin_alerts():
         print(f"ERROR fetching LinkedIn alerts: {e}")
     return listings
 
+def fetch_web_search():
+    listings = []
+    API_KEY = os.environ.get("WEB_SEARCH_API_KEY")  # SerpAPI or Bing API key
+    QUERY = f"California telehealth counseling practicum OR mental health internship"
+
+    # Placeholder pseudo-code for web search API
+    # Replace with your actual API request
+    # resp = requests.get(
+    #     f"https://serpapi.com/search.json?q={QUERY}&api_key={API_KEY}&hl=en"
+    # )
+    # results = resp.json().get("organic_results", [])
+    # for item in results:
+    #     title = item["title"]
+    #     link = item["link"]
+    #     listings.append({"title": title, "link": link, "date": ""})
+
+    return listings
+
 def build_email(listings):
     if not listings:
         return "<html><body><h2>No open practicum listings today 🎉</h2></body></html>"
@@ -117,10 +135,12 @@ def build_email(listings):
 
 def send_email(html_body):
     msg = MIMEMultipart("alternative")
-    msg["From"] = YOUR_EMAIL
+    # Friendly sender name
+    msg["From"] = f"Practicum Alerts <{YOUR_EMAIL}>"
     msg["To"] = TO_EMAIL
     msg["Subject"] = "Daily Open Practicum + Internship Listings"
     msg.attach(MIMEText(html_body, "html"))
+
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(YOUR_EMAIL, YOUR_PASSWORD)
         server.sendmail(YOUR_EMAIL, TO_EMAIL, msg.as_string())
@@ -132,8 +152,9 @@ if __name__ == "__main__":
     rss_listings = fetch_rss()
     program_listings = fetch_program_links()
     linkedin_listings = fetch_linkedin_alerts()
+    web_search_listings = fetch_web_search()  # Telehealth CA practicum
 
-    all_listings = rss_listings + program_listings + linkedin_listings
+    all_listings = rss_listings + program_listings + linkedin_listings + web_search_listings
 
     email_body = build_email(all_listings)
     send_email(email_body)
