@@ -115,14 +115,18 @@ def fetch_web_search():
     listings = []
     try:
         query = "California counseling practicum OR mental health internship telehealth OR remote site:.org OR site:.edu"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/116.0.5845.111 Safari/537.36"
+        }
         url = f"https://www.bing.com/search?q={query.replace(' ', '+')}"
         r = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Bing search results are in <li class="b_algo">
-        for li in soup.find_all("li", class_="b_algo"):
-            a_tag = li.find("a")
+        # Grab all <h2><a> links which are usually results
+        for h2 in soup.find_all("h2"):
+            a_tag = h2.find("a")
             if a_tag and a_tag.get("href"):
                 href = a_tag["href"]
                 title = a_tag.get_text().strip()
