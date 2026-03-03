@@ -14,3 +14,5 @@ Automated Python script that fetches daily counseling practicum listings from RS
 1. Upload the repo files to GitHub.
 2. Add email credentials as GitHub Secrets: `EMAIL_ADDRESS` & `EMAIL_PASSWORD`.
 3. GitHub Actions will run daily and email new practicum listings.
+
+# Trigger GitHub Actions recognition
