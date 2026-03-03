@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import imaplib
 import email
+import datetime
 
 # -------------------------
 # CONFIGURATION
@@ -16,19 +17,23 @@ YOUR_PASSWORD = os.environ.get("EMAIL_PASSWORD")
 TO_EMAIL = YOUR_EMAIL
 
 ZIP = "94582"
-RADIUS_MILES = 20
-STATE = "California"
+RADIUS = "20"  # miles
 
+# Main keywords
 KEYWORDS = [
-    "counseling practicum", "counseling internship",
-    "mental health intern", "school counseling",
-    "clinical intern", "behavioral health intern",
+    "counseling practicum",
+    "counseling internship",
+    "mental health intern",
+    "school counseling",
+    "clinical intern",
+    "behavioral health intern",
     "trainee"
 ]
 
+# Remote/Telehealth keywords
 TELEHEALTH_KEYWORDS = ["telehealth", "remote", "virtual", "online", "video"]
 
-# Verified program pages — always included
+# Verified program pages
 PROGRAM_LINKS = {
     "Discovery Counseling Center": "https://www.discoveryctr.net/training-opportunities/",
     "Kaiser Permanente Pre-Master’s Mental Health Internship": "https://mentalhealthtraining-ncal.kaiserpermanente.org/pre-masters-mental-health-internship/",
@@ -39,9 +44,10 @@ PROGRAM_LINKS = {
     "Earth Circles Counseling Center": "https://www.earthcirclescenter.com/internships/"
 }
 
+# RSS feeds
 RSS_FEEDS = [
-    f"https://www.indeed.com/rss?q=counseling+practicum+OR+counseling+internship&l={ZIP}&radius={RADIUS_MILES}",
-    f"https://www.indeed.com/rss?q=clinical+mental+health+intern+OR+mental+health+intern&l={ZIP}&radius={RADIUS_MILES}"
+    f"https://www.indeed.com/rss?q=counseling+practicum+OR+counseling+internship&l={ZIP}&radius={RADIUS}",
+    f"https://www.indeed.com/rss?q=clinical+mental+health+intern+OR+mental+health+intern&l={ZIP}&radius={RADIUS}"
 ]
 
 LINKEDIN_SENDER = "jobs-noreply@linkedin.com"
@@ -55,29 +61,23 @@ def fetch_rss():
         feed = feedparser.parse(feed_url)
         for entry in feed.entries:
             title = entry.title
-            if any(k.lower() in title.lower() for k in KEYWORDS):
+            published = entry.get("published", "")
+            if any(k.lower() in title.lower() for k in KEYWORDS + TELEHEALTH_KEYWORDS):
                 telehealth_tag = any(tk in title.lower() for tk in TELEHEALTH_KEYWORDS)
-                listings.append({
-                    "title": title.strip(),
-                    "link": entry.link.strip(),
-                    "telehealth": telehealth_tag,
-                    "source": "RSS"
-                })
+                listings.append({"title": title.strip(), "link": entry.link.strip(), "telehealth": telehealth_tag, "source": "RSS", "date": published})
     return listings
 
 def fetch_program_links():
     listings = []
     for org, url in PROGRAM_LINKS.items():
-        # Always include top-level program page
-        listings.append({"title": f"{org}", "link": url, "telehealth": False, "source": "Program Page"})
         try:
             r = requests.get(url, timeout=10)
             soup = BeautifulSoup(r.text, "html.parser")
             for a in soup.find_all("a", href=True):
                 text = a.get_text().strip()
-                if any(k.lower() in text.lower() for k in KEYWORDS):
+                if any(k.lower() in text.lower() for k in KEYWORDS + TELEHEALTH_KEYWORDS + ["apply", "open", "internship", "practicum"]):
                     telehealth_tag = any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS)
-                    listings.append({"title": f"{org}: {text}", "link": a["href"], "telehealth": telehealth_tag, "source": "Program Page"})
+                    listings.append({"title": f"{org}: {text}", "link": a["href"], "telehealth": telehealth_tag, "source": "Program Page", "date": ""})
         except Exception as e:
             print(f"ERROR fetching {org}: {e}")
     return listings
@@ -96,6 +96,7 @@ def fetch_linkedin_alerts():
             result, msg_data = mail.fetch(mail_id, "(RFC822)")
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
+
             if msg.is_multipart():
                 for part in msg.walk():
                     if part.get_content_type() == "text/html":
@@ -104,63 +105,62 @@ def fetch_linkedin_alerts():
                         for a in soup.find_all("a", href=True):
                             text = a.get_text().strip()
                             href = a["href"]
-                            if any(k.lower() in text.lower() for k in KEYWORDS):
+                            if text and any(k.lower() in text.lower() for k in KEYWORDS + TELEHEALTH_KEYWORDS):
                                 telehealth_tag = any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS)
-                                listings.append({"title": text, "link": href, "telehealth": telehealth_tag, "source": "LinkedIn"})
+                                listings.append({"title": text, "link": href, "telehealth": telehealth_tag, "source": "LinkedIn", "date": ""})
     except Exception as e:
         print(f"ERROR fetching LinkedIn alerts: {e}")
     return listings
 
 def fetch_web_search():
     listings = []
-    try:
-        query = "California counseling practicum OR mental health internship telehealth OR remote site:.org OR site:.edu"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/116.0.5845.111 Safari/537.36"
-        }
-        url = f"https://www.bing.com/search?q={query.replace(' ', '+')}"
-        r = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(r.text, "html.parser")
+    # Bing Search API placeholder - needs API_KEY from Bing free tier
+    API_KEY = os.environ.get("BING_SEARCH_API_KEY")
+    if not API_KEY:
+        print("Bing API key not set; skipping web search")
+        return listings
 
-        # Grab all <h2><a> links which are usually results
-        for h2 in soup.find_all("h2"):
-            a_tag = h2.find("a")
-            if a_tag and a_tag.get("href"):
-                href = a_tag["href"]
-                title = a_tag.get_text().strip()
-                if any(k.lower() in title.lower() for k in ["internship", "practicum", "training"]):
-                    listings.append({
-                        "title": title,
-                        "link": href,
-                        "telehealth": True,
-                        "source": "Bing Search"
-                    })
+    QUERY = f"{STATE} counseling practicum OR mental health internship"
+    url = f"https://api.bing.microsoft.com/v7.0/search?q={QUERY}&count=10"
+
+    headers = {"Ocp-Apim-Subscription-Key": API_KEY}
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        data = r.json()
+        for item in data.get("webPages", {}).get("value", []):
+            title = item.get("name", "")
+            link = item.get("url", "")
+            if any(k.lower() in title.lower() for k in KEYWORDS + TELEHEALTH_KEYWORDS):
+                telehealth_tag = any(tk in title.lower() for tk in TELEHEALTH_KEYWORDS)
+                listings.append({"title": title, "link": link, "telehealth": telehealth_tag, "source": "Bing Search", "date": ""})
     except Exception as e:
         print(f"ERROR fetching Bing search: {e}")
     return listings
 
 def build_email(listings):
-    if not listings:
-        return "<html><body><h2>No open practicum listings today 🎉</h2></body></html>"
-
-    # Separate Telehealth vs On-site
     telehealth_list = [l for l in listings if l["telehealth"]]
     onsite_list = [l for l in listings if not l["telehealth"]]
 
-    body = "<html><body><h2>Open Practicum & Internship Listings (California)</h2>"
+    if not listings:
+        return "<html><body><h2>No open practicum listings today 🎉</h2></body></html>"
+
+    body = "<html><body>"
+    body += "<h2>Open Practicum & Internship Listings (California)</h2>"
 
     if onsite_list:
-        body += "<h3>On-Site Programs</h3><ul>"
+        body += "<h3>On-Site Opportunities</h3><ul>"
         for item in onsite_list:
-            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}" target="_blank">{item["link"]}</a></li>'
+            date_info = f"<br><small>{item['date']}</small>" if item['date'] else ""
+            link_html = f'<br><a href="{item["link"]}" target="_blank">{item["link"]}</a>' if item["link"] else ""
+            body += f'<li><strong>{item["title"]}</strong>{date_info}{link_html}</li>'
         body += "</ul>"
 
     if telehealth_list:
-        body += "<h3>Telehealth / Remote Programs</h3><ul>"
+        body += "<h3>Telehealth / Remote Opportunities</h3><ul>"
         for item in telehealth_list:
-            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}" target="_blank">{item["link"]}</a></li>'
+            date_info = f"<br><small>{item['date']}</small>" if item['date'] else ""
+            link_html = f'<br><a href="{item["link"]}" target="_blank">{item["link"]}</a>' if item["link"] else ""
+            body += f'<li><strong>{item["title"]}</strong>{date_info}{link_html}</li>'
         body += "</ul>"
 
     body += "</body></html>"
@@ -170,7 +170,7 @@ def send_email(html_body):
     msg = MIMEMultipart("alternative")
     msg["From"] = YOUR_EMAIL
     msg["To"] = TO_EMAIL
-    msg["Subject"] = "Daily Open Practicum + Internship Listings (CA)"
+    msg["Subject"] = f"Daily Open Practicum + Internship Listings ({datetime.date.today()})"
     msg.attach(MIMEText(html_body, "html"))
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(YOUR_EMAIL, YOUR_PASSWORD)
