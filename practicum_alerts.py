@@ -28,7 +28,7 @@ KEYWORDS = [
 
 TELEHEALTH_KEYWORDS = ["telehealth", "remote", "virtual", "online", "video"]
 
-# Verified local program pages
+# Verified program pages — always included
 PROGRAM_LINKS = {
     "Discovery Counseling Center": "https://www.discoveryctr.net/training-opportunities/",
     "Kaiser Permanente Pre-Master’s Mental Health Internship": "https://mentalhealthtraining-ncal.kaiserpermanente.org/pre-masters-mental-health-internship/",
@@ -39,7 +39,6 @@ PROGRAM_LINKS = {
     "Earth Circles Counseling Center": "https://www.earthcirclescenter.com/internships/"
 }
 
-# RSS feeds
 RSS_FEEDS = [
     f"https://www.indeed.com/rss?q=counseling+practicum+OR+counseling+internship&l={ZIP}&radius={RADIUS_MILES}",
     f"https://www.indeed.com/rss?q=clinical+mental+health+intern+OR+mental+health+intern&l={ZIP}&radius={RADIUS_MILES}"
@@ -56,26 +55,30 @@ def fetch_rss():
         feed = feedparser.parse(feed_url)
         for entry in feed.entries:
             title = entry.title
-            published = entry.get("published", "")
             if any(k.lower() in title.lower() for k in KEYWORDS):
-                listings.append({"title": title.strip(), "link": entry.link.strip(), "telehealth": False})
+                telehealth_tag = any(tk in title.lower() for tk in TELEHEALTH_KEYWORDS)
+                listings.append({
+                    "title": title.strip(),
+                    "link": entry.link.strip(),
+                    "telehealth": telehealth_tag,
+                    "source": "RSS"
+                })
     return listings
 
 def fetch_program_links():
     listings = []
     for org, url in PROGRAM_LINKS.items():
+        # Always include top-level program page
+        listings.append({"title": f"{org}", "link": url, "telehealth": False, "source": "Program Page"})
         try:
             r = requests.get(url, timeout=10)
             soup = BeautifulSoup(r.text, "html.parser")
+            # Include any links that match keywords
             for a in soup.find_all("a", href=True):
                 text = a.get_text().strip()
-                if any(k.lower() in text.lower() for k in ["apply", "open", "internship", "practicum"]):
+                if any(k.lower() in text.lower() for k in KEYWORDS):
                     telehealth_tag = any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS)
-                    listings.append({
-                        "title": f"{org}: {text}",
-                        "link": a["href"],
-                        "telehealth": telehealth_tag
-                    })
+                    listings.append({"title": f"{org}: {text}", "link": a["href"], "telehealth": telehealth_tag, "source": "Program Page"})
         except Exception as e:
             print(f"ERROR fetching {org}: {e}")
     return listings
@@ -104,53 +107,32 @@ def fetch_linkedin_alerts():
                             href = a["href"]
                             if any(k.lower() in text.lower() for k in KEYWORDS):
                                 telehealth_tag = any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS)
-                                listings.append({
-                                    "title": text,
-                                    "link": href,
-                                    "telehealth": telehealth_tag
-                                })
+                                listings.append({"title": text, "link": href, "telehealth": telehealth_tag, "source": "LinkedIn"})
     except Exception as e:
         print(f"ERROR fetching LinkedIn alerts: {e}")
     return listings
 
-def fetch_telehealth_google():
-    listings = []
-    try:
-        QUERY = "telehealth counseling practicum OR telehealth mental health internship California"
-        URL = f"https://www.google.com/search?q={QUERY}&num=10"
-        HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        r = requests.get(URL, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(r.text, "html.parser")
-        for g in soup.find_all('a', href=True):
-            href = g['href']
-            text = g.get_text().strip()
-            if text and any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS):
-                listings.append({"title": text, "link": href, "telehealth": True})
-    except Exception as e:
-        print(f"ERROR fetching Telehealth Google results: {e}")
-    return listings
-
 def build_email(listings):
-    tele = [l for l in listings if l.get("telehealth")]
-    onsite = [l for l in listings if not l.get("telehealth")]
+    if not listings:
+        return "<html><body><h2>No open practicum listings today 🎉</h2></body></html>"
 
-    body = "<html><body>"
+    # Separate Telehealth vs On-site
+    telehealth_list = [l for l in listings if l["telehealth"]]
+    onsite_list = [l for l in listings if not l["telehealth"]]
 
-    body += "<h2>On-Site / Local Listings</h2><ul>"
-    if onsite:
-        for item in onsite:
-            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}">{item["link"]}</a></li>'
-    else:
-        body += "<li>No on-site listings today 🎉</li>"
-    body += "</ul>"
+    body = "<html><body><h2>Open Practicum & Internship Listings (California)</h2>"
 
-    body += "<h2>Telehealth / Remote Listings</h2><ul>"
-    if tele:
-        for item in tele:
-            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}">{item["link"]}</a></li>'
-    else:
-        body += "<li>No Telehealth listings today 🎉</li>"
-    body += "</ul>"
+    if onsite_list:
+        body += "<h3>On-Site Programs</h3><ul>"
+        for item in onsite_list:
+            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}" target="_blank">{item["link"]}</a></li>'
+        body += "</ul>"
+
+    if telehealth_list:
+        body += "<h3>Telehealth / Remote Programs</h3><ul>"
+        for item in telehealth_list:
+            body += f'<li><strong>{item["title"]}</strong><br><a href="{item["link"]}" target="_blank">{item["link"]}</a></li>'
+        body += "</ul>"
 
     body += "</body></html>"
     return body
@@ -172,9 +154,8 @@ if __name__ == "__main__":
     rss_listings = fetch_rss()
     program_listings = fetch_program_links()
     linkedin_listings = fetch_linkedin_alerts()
-    telehealth_listings = fetch_telehealth_google()
 
-    all_listings = rss_listings + program_listings + linkedin_listings + telehealth_listings
+    all_listings = rss_listings + program_listings + linkedin_listings
 
     email_body = build_email(all_listings)
     send_email(email_body)
