@@ -23,7 +23,7 @@ KEYWORDS = [
     "counseling practicum", "counseling internship",
     "mental health intern", "school counseling",
     "clinical intern", "behavioral health intern",
-    "trainee"
+    "trainee", "training program"
 ]
 
 TELEHEALTH_KEYWORDS = ["telehealth", "remote", "virtual", "online", "video"]
@@ -35,21 +35,23 @@ PROGRAM_LINKS = {
     "Contra Costa Behavioral Health": "https://www.contracosta.ca.gov/332/Behavioral-Health-Services",
     "Solano County Behavioral Health": "https://www.solanocounty.com/depts/ph/behavioral_health/internships.asp",
     "Alameda County Behavioral Health": "https://www.acgov.org/behavioral-health-services",
-    "Health Solutions West": "https://healthsolutionswest.org/careers/internships-practicums/",
-    "Earth Circles Counseling Center": "https://www.earthcirclescenter.com/internships/"
+    "Health Solutions West": "https://healthsolutionswest.org/careers/internships-practicums/"
 }
 
 # RSS feeds
 RSS_FEEDS = [
-    f"https://www.indeed.com/rss?q=counseling+practicum+OR+counseling+internship&l={ZIP}&radius={RADIUS_MILES}",
-    f"https://www.indeed.com/rss?q=clinical+mental+health+intern+OR+mental+health+intern&l={ZIP}&radius={RADIUS_MILES}"
+    f"https://www.indeed.com/rss?q=counseling+practicum+OR+counseling+internship&l={ZIP}&radius={RADIUS_MILES}"
 ]
 
 LINKEDIN_SENDER = "jobs-noreply@linkedin.com"
 
+SERPAPI_KEY = os.environ.get("SERPAPI_KEY")
+SEARCH_QUERY = f"California counseling practicum OR mental health internship"
+
 # -------------------------
 # FUNCTIONS
 # -------------------------
+
 def fetch_rss():
     listings = []
     for feed_url in RSS_FEEDS:
@@ -58,12 +60,8 @@ def fetch_rss():
             title = entry.title
             if any(k.lower() in title.lower() for k in KEYWORDS):
                 telehealth_tag = any(tk in title.lower() for tk in TELEHEALTH_KEYWORDS)
-                listings.append({
-                    "title": title.strip(),
-                    "link": entry.link.strip(),
-                    "telehealth": telehealth_tag,
-                    "source": "RSS"
-                })
+                listings.append({"title": title.strip(), "link": entry.link.strip(),
+                                 "telehealth": telehealth_tag, "source": "RSS"})
     return listings
 
 def fetch_program_links():
@@ -72,16 +70,14 @@ def fetch_program_links():
         try:
             r = requests.get(url, timeout=10)
             soup = BeautifulSoup(r.text, "html.parser")
-            for a in soup.find_all("a", href=True):
-                text = a.get_text().strip()
+            # Search all links and text for keywords
+            for tag in soup.find_all(["a","p","div"]):
+                text = tag.get_text().strip()
                 if any(k.lower() in text.lower() for k in KEYWORDS):
                     telehealth_tag = any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS)
-                    listings.append({
-                        "title": f"{org}: {text}",
-                        "link": a["href"],
-                        "telehealth": telehealth_tag,
-                        "source": "Program Page"
-                    })
+                    link = tag.get("href") if tag.has_attr("href") else url
+                    listings.append({"title": f"{org}: {text}", "link": link,
+                                     "telehealth": telehealth_tag, "source": "Program Page"})
         except Exception as e:
             print(f"ERROR fetching {org}: {e}")
     return listings
@@ -92,10 +88,8 @@ def fetch_linkedin_alerts():
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(YOUR_EMAIL, YOUR_PASSWORD)
         mail.select("inbox")
-
         result, data = mail.search(None, f'(UNSEEN FROM "{LINKEDIN_SENDER}")')
         mail_ids = data[0].split()
-
         for mail_id in mail_ids:
             result, msg_data = mail.fetch(mail_id, "(RFC822)")
             raw_email = msg_data[0][1]
@@ -110,38 +104,38 @@ def fetch_linkedin_alerts():
                             href = a["href"]
                             if any(k.lower() in text.lower() for k in KEYWORDS):
                                 telehealth_tag = any(tk in text.lower() for tk in TELEHEALTH_KEYWORDS)
-                                listings.append({
-                                    "title": text,
-                                    "link": href,
-                                    "telehealth": telehealth_tag,
-                                    "source": "LinkedIn"
-                                })
+                                listings.append({"title": text, "link": href,
+                                                 "telehealth": telehealth_tag, "source": "LinkedIn"})
     except Exception as e:
         print(f"ERROR fetching LinkedIn alerts: {e}")
     return listings
 
 def fetch_web_search():
-    # Example using SerpAPI or Bing API (pseudo-code; you need API key)
     listings = []
-    API_KEY = os.environ.get("WEB_SEARCH_API_KEY")  # SerpAPI or Bing
-    QUERY = f"California counseling practicum OR mental health internship"
-
-    # pseudo-code, replace with actual API request
-    # resp = requests.get(f"https://api.serpapi.com/search.json?q={QUERY}&api_key={API_KEY}")
-    # results = resp.json().get("organic_results", [])
-    # for item in results:
-    #     title = item["title"]
-    #     link = item["link"]
-    #     telehealth_tag = any(tk in title.lower() for tk in TELEHEALTH_KEYWORDS)
-    #     listings.append({"title": title, "link": link, "telehealth": telehealth_tag, "source": "Web Search"})
-
+    try:
+        params = {
+            "engine": "google",
+            "q": SEARCH_QUERY,
+            "location": STATE,
+            "api_key": SERPAPI_KEY
+        }
+        resp = requests.get("https://serpapi.com/search", params=params)
+        results = resp.json().get("organic_results", [])
+        for item in results:
+            title = item.get("title", "")
+            link = item.get("link", "")
+            snippet = item.get("snippet", "")
+            if any(k.lower() in title.lower() + snippet.lower() for k in KEYWORDS):
+                telehealth_tag = any(tk in title.lower() + snippet.lower() for tk in TELEHEALTH_KEYWORDS)
+                listings.append({"title": title, "link": link, "telehealth": telehealth_tag, "source": "Web Search"})
+    except Exception as e:
+        print(f"ERROR fetching Web Search: {e}")
     return listings
 
 def build_email(listings):
     if not listings:
         return "<html><body><h2>No open practicum listings today 🎉</h2></body></html>"
-
-    body = "<html><body><h2>Open Practicum & Internship Listings (California)</h2><ul>"
+    body = "<html><body><h2>Open Practicum & Internship Listings (CA)</h2><ul>"
     for item in listings:
         tele_tag = " — Telehealth" if item["telehealth"] else ""
         source_tag = f" ({item['source']})"
@@ -166,7 +160,7 @@ if __name__ == "__main__":
     rss_listings = fetch_rss()
     program_listings = fetch_program_links()
     linkedin_listings = fetch_linkedin_alerts()
-    web_search_listings = fetch_web_search()  # optional API-based search
+    web_search_listings = fetch_web_search()
 
     all_listings = rss_listings + program_listings + linkedin_listings + web_search_listings
 
